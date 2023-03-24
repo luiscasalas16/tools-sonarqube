@@ -16,6 +16,8 @@ namespace tools_sonarqube
 
         private StringDictionary rulesCache = new StringDictionary();
 
+        private Dictionary<string, int> counterCache = new Dictionary<string, int>();
+
         public ReportGenerator(string url, string user, string password) 
         {
             this.url = url;
@@ -28,6 +30,7 @@ namespace tools_sonarqube
 
             GeneratePrimaryReport(folder);
             GenerateSecondaryReport(folder);
+            GenerateSummaryReport(folder);
         }
 
         private void GeneratePrimaryReport(string folder)
@@ -88,6 +91,37 @@ namespace tools_sonarqube
             }
         }
 
+        private void GenerateSummaryReport(string folder)
+        {
+            string path = Path.Combine(folder, "sonarqube-summary-report.csv");
+
+            if (File.Exists(path))
+                File.Delete(path);
+
+            using (var writer = new StreamWriter(path))
+            using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
+            {
+                csv.WriteHeader<ReportSummary>();
+                csv.NextRecord();
+
+                foreach (var key in counterCache.Keys)
+                {
+                    string[] keySplit = key.Split('|');
+
+                    ReportSummary reportSummary = new ReportSummary()
+                    {
+                        Project = keySplit[0],
+                        Type = keySplit[1],
+                        Level = keySplit[2],
+                        Count = counterCache[key].ToString()
+                    };
+
+                    csv.WriteRecord(reportSummary);
+                    csv.NextRecord();
+                }
+            }
+        }
+
         private bool GenerateIssues(string project, int page, string types, CsvWriter csv)
         {
             var issues = IssuesConverter.FromJson(IssuesSearch(project, 100, page, types).Result);
@@ -99,6 +133,8 @@ namespace tools_sonarqube
 
             foreach (var issue in issues.Issues)
             {
+                Count(project + "|" + issue.Type.ToString() + "|" + issue.Severity.ToString());
+
                 ReportElement reportElement = new ReportElement()
                 {
                     Key = issue.Key,
@@ -134,6 +170,8 @@ namespace tools_sonarqube
 
             foreach (var hotspot in hotspots.Hotspots)
             {
+                Count(project + "|HOTSPOTS|" + hotspot.VulnerabilityProbability);
+
                 ReportElement reportElement = new ReportElement()
                 {
                     Key = hotspot.Key,
@@ -156,6 +194,14 @@ namespace tools_sonarqube
             }
 
             return true;
+        }
+
+        private void Count(string key)
+        {
+            if (counterCache.ContainsKey(key))
+                counterCache[key] += 1;
+            else
+                counterCache.Add(key, 1);
         }
 
         private string GetRuleDescription(string rule)
